@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>2.4\" Display View</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        height: 100%;
+        font-family: "LG스마트체 Regular", "LG Smart UI", system-ui, -apple-system,
+          BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        overflow: hidden;
+      }
+      .display24-panel {
+        width: 10.31cm;
+        height: 7.31cm;
+        background: #000;
+        box-sizing: border-box;
+        position: fixed;
+        left: 0;
+        top: 0;
+        border: 1px solid #f9fafb;
+      }
+      .display24-body {
+        position: absolute;
+        inset: 0.6cm 0.6cm 1.4cm 0.6cm;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: #f9fafb;
+        white-space: pre-wrap;
+        font-size: 16px;
+        line-height: 1.4;
+        font-weight: 700;
+      }
+      .display24-caption {
+        position: absolute;
+        left: 0.6cm;
+        right: 0.6cm;
+        bottom: 0.34cm;
+        color: #f9fafb;
+        font-size: 20px;
+        line-height: 1.2;
+        text-align: center;
+        font-weight: 700;
+      }
+      .display24-caption strong {
+        font-weight: 800;
+      }
+      .display24-caption-box {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #3f3f46;
+        border-radius: 4px;
+        box-sizing: border-box;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="display24-panel">
+      <div class="display24-body"></div>
+      <div class="display24-caption">
+        <span class="display24-caption-box" id="display24-close"><strong>&apos;확인&apos;</strong> 버튼을 누르세요</span>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const panelEl = document.querySelector(".display24-panel");
+        const bodyEl = document.querySelector(".display24-body");
+        const closeEl = document.getElementById("display24-close");
+        if (!panelEl || !bodyEl) return;
+
+        const setText = (s) => {
+          const raw = s && String(s).trim();
+          const text = raw || "No message.";
+          const special =
+            text === "현재 제품은 정상 동작 중이며,\n진단 결과 이상 없습니다.";
+          bodyEl.style.fontSize = special ? "24px" : "16px";
+          bodyEl.textContent = text;
+        };
+
+        // 팝업 창 크기를 cm 기반 패널 크기에 맞춤(가능한 경우)
+        const fitWindowToPanel = () => {
+          try {
+            const rect = panelEl.getBoundingClientRect();
+            const chromeW = window.outerWidth - window.innerWidth;
+            const chromeH = window.outerHeight - window.innerHeight;
+            const targetW = Math.ceil(rect.width + chromeW);
+            const targetH = Math.ceil(rect.height + chromeH);
+            // 과도한 반복 방지: 현재 크기와 큰 차이가 있을 때만
+            if (Math.abs(window.outerWidth - targetW) > 2 || Math.abs(window.outerHeight - targetH) > 2) {
+              window.resizeTo(targetW, targetH);
+            }
+          } catch (_) {
+            // ignore
+          }
+        };
+
+        try {
+          setText(localStorage.getItem("display_sentence") || "");
+        } catch (_) {
+          // ignore
+        }
+
+        // 레이아웃 반영 후 리사이즈 (2회 시도)
+        requestAnimationFrame(() => {
+          fitWindowToPanel();
+          setTimeout(fitWindowToPanel, 100);
+        });
+
+        if (closeEl) {
+          closeEl.addEventListener("click", () => {
+            try {
+              window.close();
+            } catch (_) {
+              // ignore
+            }
+          });
+        }
+
+        window.addEventListener("message", (ev) => {
+          if (ev.origin !== location.origin) return;
+          const data = ev.data;
+          if (!data || data.type !== "display_sentence") return;
+          setText(data.sentence || "");
+          try {
+            localStorage.setItem("display_sentence", data.sentence || "");
+          } catch (_) {
+            // ignore
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
+

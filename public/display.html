@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>디스플레이 뷰</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        height: 100%;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .display-panel {
+        background: #3f3f46;
+        border-radius: 20px;
+        width: 15.5cm;
+        height: 7.15cm;
+        display: flex;
+        flex-direction: column;
+        padding: 24px 32px 20px 32px;
+        box-sizing: border-box;
+      }
+      .display-panel-body {
+        flex: 1;
+        color: #f9fafb;
+        font-size: 20px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .display-panel-footer {
+        height: 1.44cm;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 0;
+      }
+      .display-panel-line {
+        height: 1px;
+        background: #e5e7eb;
+        margin: 0;
+      }
+      .display-panel-close {
+        flex: 1;
+        align-self: center;
+        background: none;
+        border: none;
+        color: #f9fafb;
+        font-size: 19px;
+        cursor: pointer;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="display-panel">
+      <div class="display-panel-body"></div>
+      <div class="display-panel-footer">
+        <div class="display-panel-line"></div>
+        <button class="display-panel-close" onclick="window.close()">확인</button>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const bodyEl = document.querySelector(".display-panel-body");
+        if (!bodyEl) return;
+
+        const setText = (s) => {
+          const raw = s && String(s).trim();
+          const text = raw || "표시할 문장이 없습니다.";
+          const special =
+            text === "현재 제품은 정상 동작 중이며,\n진단 결과 이상 없습니다.";
+          bodyEl.style.fontSize = special ? "24px" : "20px";
+          bodyEl.textContent = text;
+        };
+
+        try {
+          setText(localStorage.getItem("display_sentence") || "");
+        } catch (_) {
+          // ignore
+        }
+
+        window.addEventListener("message", (ev) => {
+          if (ev.origin !== location.origin) return;
+          const data = ev.data;
+          if (!data || data.type !== "display_sentence") return;
+          setText(data.sentence || "");
+          try {
+            localStorage.setItem("display_sentence", data.sentence || "");
+          } catch (_) {
+            // ignore
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>냉장고 Specific AI (상태 진단)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body {
+        height: 100%;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic",
+          "Apple SD Gothic Neo", "Nanum Gothic", sans-serif;
+        margin: 0;
+        padding: 0;
+        background: #f5f5f7;
+      }
+      header {
+        padding: 12px 20px;
+        background: #1f2933;
+        color: #fff;
+        font-size: 18px;
+        font-weight: bold;
+      }
+      main {
+        display: flex;
+        flex-direction: row;
+        gap: 16px;
+        padding: 16px;
+        height: calc(100vh - 52px);
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 1920px;
+        margin: 0 auto;
+      }
+      #file-panel {
+        width: 220px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+      }
+      #file-list {
+        flex: 1;
+        overflow-y: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+      }
+      #file-list table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      #file-list tr {
+        cursor: pointer;
+      }
+      #file-list tr:hover {
+        background: #f3f4ff;
+      }
+      #file-list td {
+        padding: 6px 8px;
+        font-size: 12px;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      #file-list tr.file-selected td {
+        background: #e5e7ff;
+        font-weight: 600;
+      }
+      #content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+      }
+      #charts {
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+        padding: 12px;
+        flex: 3 3 0;
+        box-sizing: border-box;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .chart-box {
+        flex: 1 1 0;
+        min-height: 0;
+        position: relative;
+      }
+      .ts-chart-row {
+        display: flex;
+        flex-direction: row;
+        gap: 12px;
+        height: 100%;
+        min-height: 0;
+      }
+      .ts-chart-area {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 0;
+        position: relative;
+      }
+      .ts-tooltip-panel {
+        width: 220px;
+        flex-shrink: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        margin-top: -6px;
+        padding: 8px;
+        background: #f9fafb;
+        border-radius: 6px;
+        border: 1px solid #e5e7eb;
+      }
+      .chart-tooltip-panel {
+        font-size: 14px;
+        line-height: 1.5;
+        color: #111827;
+        min-height: 1.5em;
+      }
+      .chart-tooltip-panel .tt-title {
+        font-weight: 600;
+        font-size: 15px;
+        margin-bottom: 6px;
+        color: #374151;
+      }
+      .chart-tooltip-panel .tt-row {
+        white-space: nowrap;
+        margin-bottom: 2px;
+      }
+      .chart-tooltip-placeholder {
+        font-size: 14px;
+        color: #9ca3af;
+        margin-top: 4px;
+      }
+      canvas.chart {
+        width: 100%;
+        height: 100%;
+      }
+      .chart-tooltip {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 6px 10px;
+        font-size: 11px;
+        line-height: 1.4;
+        background: rgba(17, 24, 39, 0.92);
+        color: #f3f4f6;
+        border-radius: 6px;
+        pointer-events: none;
+        z-index: 10;
+        max-width: 220px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        opacity: 0;
+        transition: opacity 0.1s ease;
+      }
+      .chart-tooltip.visible {
+        opacity: 1;
+      }
+      .chart-tooltip .tt-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+        color: #e5e7eb;
+      }
+      .chart-tooltip .tt-row {
+        white-space: nowrap;
+      }
+      #labels {
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+        padding: 12px;
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #labels-scroll {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow-x: auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .labels-footer {
+        flex-shrink: 0;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 10px;
+        margin-top: 8px;
+        padding-top: 10px;
+        border-top: 1px solid #e5e7eb;
+        flex-wrap: wrap;
+        background: #fff;
+        box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+      }
+      .labels-title {
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 8px;
+        flex-shrink: 0;
+      }
+      .labels-grid-1x2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1.3fr;
+        gap: 16px;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .labels-panel {
+        min-width: 0;
+        overflow: auto;
+      }
+      .labels-panel h4 {
+        margin: 0 0 6px 0;
+        font-size: 12px;
+        color: #374151;
+      }
+      #labels table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .labels-table-v2 th.cea-col,
+      .labels-table-v2 td.cea-col {
+        width: 5.5%;
+        text-align: center;
+      }
+      .labels-table-v2 th.sentence-col,
+      .labels-table-v2 td.sentence-col {
+        width: 32%;
+      }
+      .labels-table-v2 th.human-match-col,
+      .labels-table-v2 td.human-match-col {
+        width: 3%;
+        text-align: center;
+      }
+      #labels th,
+      #labels td {
+        padding: 4px 6px;
+        border-bottom: 1px solid #d4d4d8;
+        border-right: 1px solid #d4d4d8;
+      }
+      #labels th {
+        background: #f9fafb;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        text-align: center;
+      }
+      #labels td {
+        text-align: center;
+      }
+      #labels th.sentence-col,
+      #labels td.sentence-col {
+        text-align: left;
+      }
+      #labels tr.row-highlight td {
+        background: #111827;
+        color: #ffffff;
+      }
+      #labels tr.row-selected td {
+        box-shadow: inset 0 0 0 2px #2563eb;
+      }
+      #labels tr.row-highlight td .badge {
+        background: #ffffff;
+        color: #111827;
+      }
+      .badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 11px;
+        background: #eef2ff;
+        color: #3730a3;
+      }
+      .badge-cause-normal {
+        background: #e5e7eb;
+        color: #111827;
+      }
+      .badge-cause-door-open-frequent {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+      .badge-cause-high-load-input {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .badge-cause-high-load-against {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+      .badge-cause-defrost-cycle {
+        background: #fef9c3;
+        color: #a16207;
+      }
+      .badge-cause-defrost-door-open {
+        background: #fee4e2;
+        color: #b42318;
+      }
+      .badge-cause-high-temp-setting {
+        background: #fef3c7;
+        color: #b45309;
+      }
+      .badge-cause-low-temp-setting {
+        background: #e0f2fe;
+        color: #0369a1;
+      }
+      .badge-cause-unknown-effect {
+        background: #f3e8ff;
+        color: #6b21a8;
+      }
+      #labels tr.row-highlight td .badge {
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.8);
+      }
+      #labels td.human-o { color: #059669; font-weight: 600; }
+      #labels td.human-x { color: #dc2626; font-weight: 600; }
+      button.primary {
+        padding: 6px 10px;
+        border-radius: 4px;
+        border: none;
+        background: #2563eb;
+        color: white;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button.primary:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #status {
+        font-size: 12px;
+        color: #6b7280;
+      }
+      .display-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+      }
+      .display-overlay.active {
+        display: flex;
+      }
+      .display-panel {
+        background: #3f3f46;
+        border-radius: 20px;
+        width: 680px;
+        max-width: 90vw;
+        aspect-ratio: 20 / 9;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        padding: 24px 32px 20px 32px;
+        box-sizing: border-box;
+      }
+      .display-panel-body {
+        flex: 1;
+        color: #f9fafb;
+        font-size: 26px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .display-panel-footer {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .display-panel-line {
+        height: 1px;
+        background: #e5e7eb;
+      }
+      .display-panel-close {
+        align-self: center;
+        background: none;
+        border: none;
+        color: #f9fafb;
+        font-size: 14px;
+        cursor: pointer;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <header>냉장고 Specific AI (상태 진단)</header>
+    <main>
+      <section id="file-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <span style="font-weight: 600; font-size: 13px">파일 목록</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px">
+          <span style="font-size: 12px; color: #6b7280">라벨 소스: v2 모델</span>
+        </div>
+        <div style="margin: 6px 0 4px 0; display: flex; flex-direction: column; gap: 4px">
+          <button id="btn-apply-label" class="primary" disabled style="width: 100%; font-size: 12px">
+            파일 선택 후 로딩
+          </button>
+          <button id="btn-display" class="primary" style="width: 100%; font-size: 12px; background: #4b5563">
+            6.8인치 디스플레이
+          </button>
+          <button id="btn-display-24" class="primary" style="width: 100%; font-size: 12px; background: #111827">
+            2.4인치 디스플레이
+          </button>
+        </div>
+        <div id="file-list">
+          <table>
+            <tbody id="file-tbody"></tbody>
+          </table>
+        </div>
+        <div id="status">서버에서 파일 목록을 불러오는 중...</div>
+      </section>
+
+      <section id="content">
+        <div id="charts">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 8px">
+            <div style="font-weight: 600; font-size: 13px">
+              시계열 (R/F 온도) <span id="current-file" style="font-weight: 400; color: #6b7280"></span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px">
+              <label for="ts-range-start">시작</label>
+              <input type="datetime-local" id="ts-range-start" style="padding: 4px 6px; border: 1px solid #e5e7eb; border-radius: 4px" />
+              <label for="ts-range-end">종료</label>
+              <input type="datetime-local" id="ts-range-end" style="padding: 4px 6px; border: 1px solid #e5e7eb; border-radius: 4px" />
+            </div>
+          </div>
+          <div class="chart-box chart-box-ts">
+            <div class="ts-chart-row">
+              <div class="ts-chart-area">
+                <canvas id="ts-chart" class="chart"></canvas>
+              </div>
+              <div class="ts-tooltip-panel">
+                <div id="ts-chart-tooltip" class="chart-tooltip-panel" aria-hidden="true"></div>
+                <div id="ts-chart-tooltip-placeholder" class="chart-tooltip-placeholder">마우스를 올려 값을 확인하세요</div>
+              </div>
+            </div>
+          </div>
+          <div style="height: 10px"></div>
+          <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px">
+            보조 지표 (스케일 표기)
+          </div>
+          <div class="chart-box">
+            <div class="ts-chart-row">
+              <div class="ts-chart-area">
+                <canvas id="aux-chart" class="chart"></canvas>
+              </div>
+              <div class="ts-tooltip-panel">
+                <div id="aux-chart-tooltip" class="chart-tooltip-panel" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="labels">
+          <div class="labels-title">1시간 구간 라벨 요약</div>
+          <div id="labels-scroll">
+            <div id="labels-container"></div>
+          </div>
+          <div id="labels-footer" class="labels-footer">
+            <span id="send-diagnostic-status" style="font-size: 12px; color: #6b7280; flex: 1; min-width: 120px"></span>
+            <button type="button" id="btn-send-diagnostic" class="primary" disabled style="font-size: 12px">
+              Send → 능동형 Agent
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="display-overlay" class="display-overlay">
+      <div class="display-panel">
+        <div class="display-panel-body"></div>
+        <div class="display-panel-footer">
+          <div class="display-panel-line"></div>
+          <button id="btn-display-close" class="display-panel-close">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+  </html>
+
