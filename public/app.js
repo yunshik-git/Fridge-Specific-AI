@@ -151,7 +151,7 @@ function updateSendDiagnosticButton() {
 }
 
 function getSelectedLabelObject() {
-  const container = document.getElementById("label-container");
+  const container = document.getElementById("labels-container");
   if (!container) return null;
   const selected = container.querySelector("tr.row-selected");
   const highlighted = container.querySelector("tr.row-highlighted");

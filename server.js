@@ -25,14 +25,19 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(BASE_DIR, "public")));
 
-function postJsonToAgent(targetUrl, bodyObj) {
+/**
+ * JSON POST 요청 — 타임아웃 지원.
+ * @param {string}  targetUrl
+ * @param {object}  bodyObj
+ * @param {number}  [timeoutMs=8000] 응답 대기 최대 시간 (ms)
+ */
+function postJsonToAgent(targetUrl, bodyObj, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const u = new URL(targetUrl);
     const payload = JSON.stringify(bodyObj);
     const isHttps = u.protocol === "https:";
     const lib = isHttps ? https : http;
-    const port =
-      u.port || (isHttps ? 443 : 80);
+    const port = u.port || (isHttps ? 443 : 80);
     const headers = {
       "Content-Type": "application/json; charset=utf-8",
       "Content-Length": Buffer.byteLength(payload, "utf8"),
@@ -47,27 +52,51 @@ function postJsonToAgent(targetUrl, bodyObj) {
         path: u.pathname || "/",
         method: "POST",
         headers,
+        timeout: timeoutMs,
       },
       (resp) => {
         let chunks = "";
-        resp.on("data", (c) => {
-          chunks += c.toString("utf8");
-        });
+        resp.on("data", (c) => { chunks += c.toString("utf8"); });
         resp.on("end", () => {
           let json = {};
-          try {
-            json = JSON.parse(chunks || "{}");
-          } catch (_) {
-            json = { raw: chunks };
-          }
+          try { json = JSON.parse(chunks || "{}"); } catch (_) { json = { raw: chunks }; }
           resolve({ status: resp.statusCode || 500, json });
         });
       }
     );
+    req.on("timeout", () => {
+      req.destroy(new Error(`timeout after ${timeoutMs}ms`));
+    });
     req.on("error", reject);
     req.write(payload, "utf8");
     req.end();
   });
+}
+
+/**
+ * 재시도 포함 postJsonToAgent.
+ * @param {string}  url
+ * @param {object}  body
+ * @param {object}  [opts]
+ * @param {number}  [opts.timeoutMs=8000]
+ * @param {number}  [opts.retries=2]       최대 시도 횟수 (첫 시도 포함)
+ * @param {number}  [opts.retryDelayMs=1500] 재시도 간격
+ */
+async function postWithRetry(url, body, { timeoutMs = 8000, retries = 2, retryDelayMs = 1500 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const result = await postJsonToAgent(url, body, timeoutMs);
+      return result;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[server.js] POST ${url} 시도 ${attempt}/${retries} 실패: ${e.message}`);
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, retryDelayMs));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 // 파일 목록 API: human_labels_1h_fixed.csv에서 source_path만 유일하게 추출
@@ -210,25 +239,30 @@ app.post("/api/send-diagnostic-to-agent", async (req, res) => {
   if (body.diagnostic && typeof body.diagnostic === "object") {
     const diagSpec = buildSpecificAiDiagnostic(body.diagnostic);
     const simTarget = `${SIMULATOR_URL}/api/command`;
+    const simPayload = { action: "set_specific_ai_diagnostic", params: { diagnostic: diagSpec } };
+
+    console.log(`[server.js] ▶ App Shadow 경로 시도: POST ${simTarget}`);
+    console.log(`[server.js]   causeCodeR=${diagSpec.causeCodeR} causeCodeF=${diagSpec.causeCodeF}`);
+
     try {
-      const { status, json } = await postJsonToAgent(simTarget, {
-        action: "set_specific_ai_diagnostic",
-        params: { diagnostic: diagSpec },
+      const { status, json } = await postWithRetry(simTarget, simPayload, {
+        timeoutMs: 8000, retries: 2, retryDelayMs: 1500,
       });
       if (status < 400) {
+        console.log(`[server.js] ✅ 시뮬레이터 수신 확인 (status=${status}):`, json);
         return res.json({ ok: true, path: "shadow", diagnostic: diagSpec });
       }
-      console.warn("simulator responded with", status, json);
-      // 시뮬레이터 오류 시 fallback으로 직접 전송
+      console.warn(`[server.js] ⚠ 시뮬레이터 오류 응답 (status=${status}), fallback으로 전환:`, json);
     } catch (e) {
-      console.warn("simulator unreachable, falling back to direct:", e.message);
+      console.warn(`[server.js] ✗ 시뮬레이터 연결 실패 (재시도 2회), fallback으로 전환: ${e.message}`);
     }
 
     // fallback: fridge_realtime 직접 전송 (시뮬레이터 미실행 환경)
+    console.log(`[server.js] ↘ Fallback: POST ${FRIDGE_REALTIME_URL}/api/receive_specific_ai_diagnostic`);
     const message = diagSpec.sentenceDisplay;
     const target = `${FRIDGE_REALTIME_URL}/api/receive_specific_ai_diagnostic`;
     try {
-      const { status, json } = await postJsonToAgent(target, { message });
+      const { status, json } = await postJsonToAgent(target, { message, diagnostic: diagSpec });
       return res.status(status >= 400 ? status : 200).json(
         Object.assign({ path: "fallback_direct" }, json && typeof json === "object" ? json : { ok: status < 400 })
       );
