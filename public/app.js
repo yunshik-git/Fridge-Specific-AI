@@ -150,18 +150,45 @@ function updateSendDiagnosticButton() {
   btn.disabled = !has;
 }
 
+function getSelectedLabelObject() {
+  const container = document.getElementById("label-container");
+  if (!container) return null;
+  const selected = container.querySelector("tr.row-selected");
+  const highlighted = container.querySelector("tr.row-highlighted");
+  const firstRow = container.querySelector("tbody tr");
+  const tr = selected || highlighted || selectedLabelTr || firstRow;
+  if (!tr || !tr.dataset.labelJson) return null;
+  try {
+    return JSON.parse(tr.dataset.labelJson);
+  } catch (_) {
+    return null;
+  }
+}
+
 async function sendDiagnosticToAgent() {
-  const msg = getSentenceForDisplay().trim();
-  if (!msg) return;
   const statusEl = document.getElementById("send-diagnostic-status");
   const btn = document.getElementById("btn-send-diagnostic");
   if (statusEl) statusEl.textContent = "전송 중...";
   if (btn) btn.disabled = true;
+
+  const labelObj = getSelectedLabelObject();
+  const msg = getSentenceForDisplay().trim();
+  if (!labelObj && !msg) {
+    if (statusEl) statusEl.textContent = "전송할 진단 데이터가 없습니다.";
+    updateSendDiagnosticButton();
+    return;
+  }
+
+  // App Shadow 경로: 구조화된 전체 라벨 전송
+  const bodyPayload = labelObj
+    ? { diagnostic: labelObj }
+    : { message: msg };
+
   try {
     const res = await fetch(`${API_BASE}/api/send-diagnostic-to-agent`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: msg }),
+      body: JSON.stringify(bodyPayload),
     });
     let data = {};
     try {
@@ -170,7 +197,8 @@ async function sendDiagnosticToAgent() {
       data = {};
     }
     if (res.ok && data.ok !== false) {
-      if (statusEl) statusEl.textContent = "전송 완료 (능동형 Agent 채팅 확인)";
+      const pathLabel = data.path === "shadow" ? "App Shadow 경유" : data.path === "fallback_direct" ? "직접 전송(fallback)" : "";
+      if (statusEl) statusEl.textContent = `전송 완료${pathLabel ? " — " + pathLabel : ""} (능동형 Agent 확인)`;
     } else {
       const err = data.error || data.detail || data.hint || res.statusText || "실패";
       if (statusEl) statusEl.textContent = String(err).slice(0, 200);
@@ -1133,6 +1161,9 @@ function renderLabels(labels) {
         const sentenceTd = tr.querySelector("td.sentence-col");
         const rendered = sentenceTd ? sentenceTd.innerText || sentenceTd.textContent : "";
         tr.dataset.sentenceText = _normalizeSentenceForDisplay(rendered || combinedSentence);
+        tr.dataset.labelJson = JSON.stringify(
+          Object.assign({}, row, { sentenceText: tr.dataset.sentenceText })
+        );
       }
       tr.addEventListener("click", () => setSelectedLabelRow(tr));
       tbody.appendChild(tr);
@@ -1182,6 +1213,9 @@ function renderLabels(labels) {
         const sentenceTd = tr.querySelector("td.sentence-col");
         const rendered = sentenceTd ? sentenceTd.innerText || sentenceTd.textContent : "";
         tr.dataset.sentenceText = _normalizeSentenceForDisplay(rendered || sentence);
+        tr.dataset.labelJson = JSON.stringify(
+          Object.assign({}, row, { sentenceText: tr.dataset.sentenceText })
+        );
       }
       tr.addEventListener("click", () => setSelectedLabelRow(tr));
       tbody.appendChild(tr);

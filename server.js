@@ -18,6 +18,8 @@ const FRIDGE_REALTIME_URL =
   (process.env.FRIDGE_REALTIME_URL || "http://127.0.0.1:8503").replace(/\/$/, "");
 const FRIDGE_REALTIME_DIAGNOSTIC_SECRET =
   process.env.FRIDGE_REALTIME_DIAGNOSTIC_SECRET || "";
+const SIMULATOR_URL =
+  (process.env.SIMULATOR_URL || "http://127.0.0.1:8082").replace(/\/$/, "");
 
 app.use(cors());
 app.use(express.json());
@@ -149,11 +151,100 @@ app.get("/api/file-detail", (req, res) => {
   });
 });
 
-// 능동형 냉장고 Agent(fridge_realtime)로 현재 진단 문장 전달
+/**
+ * labels[] 항목(웹뷰어 라벨 필드) → App Shadow specificAiDiagnostic 스펙 객체로 변환.
+ * sentenceDisplay 우선순위: explicit > 조합 문장 > causeCode 원문.
+ */
+function buildSpecificAiDiagnostic(label) {
+  const causeR = (label.cause_code_R || label.cause_code || "").trim();
+  const causeF = (label.cause_code_F || "").trim();
+
+  // sentenceDisplay 결정
+  let sentenceDisplay = (label.sentenceDisplay || label.sentenceText || "").trim();
+  if (!sentenceDisplay) {
+    const isNormal = causeR === "NORMAL" && (!causeF || causeF === "NORMAL");
+    if (isNormal) {
+      sentenceDisplay = "현재 제품은 정상 동작 중이며, 진단 결과 이상 없습니다.";
+    } else {
+      const parts = [];
+      if (label.cause_example_R || label.effect_example_R || label.action_example_R) {
+        parts.push(`냉장실: ${[label.cause_example_R, label.effect_example_R, label.action_example_R].filter(Boolean).join(" / ")}`);
+      }
+      if (label.cause_example_F || label.effect_example_F || label.action_example_F) {
+        parts.push(`냉동실: ${[label.cause_example_F, label.effect_example_F, label.action_example_F].filter(Boolean).join(" / ")}`);
+      }
+      sentenceDisplay = parts.join("\n") || causeR || causeF || "진단 정보 없음";
+    }
+  }
+
+  return {
+    windowStart:    label.window_start  || "",
+    windowEnd:      label.window_end    || "",
+    causeCodeR:     causeR,
+    causeCodeF:     causeF,
+    effectCodeR:    label.effect_R      || "",
+    effectExampleR: label.effect_example_R || "",
+    actionCodeR:    label.action_R      || "",
+    actionExampleR: label.action_example_R || "",
+    effectCodeF:    label.effect_F      || "",
+    effectExampleF: label.effect_example_F || "",
+    actionCodeF:    label.action_F      || "",
+    actionExampleF: label.action_example_F || "",
+    sentenceDisplay,
+    modelVersion:   label.modelVersion  || "v2",
+    updatedAt:      new Date().toISOString(),
+  };
+}
+
+/**
+ * App Shadow 경로: 시뮬레이터에 set_specific_ai_diagnostic 명령 전송
+ * → 시뮬레이터가 shadow 갱신 → SSE delta → fridge_realtime 처리
+ *
+ * body: { diagnostic: <label 객체> }
+ *       또는 하위 호환용 { message: "문자열" }
+ */
 app.post("/api/send-diagnostic-to-agent", async (req, res) => {
-  const message = req.body && req.body.message != null ? String(req.body.message).trim() : "";
+  const body = req.body || {};
+
+  // ── 구조화 경로 (App Shadow) ──────────────────────────────
+  if (body.diagnostic && typeof body.diagnostic === "object") {
+    const diagSpec = buildSpecificAiDiagnostic(body.diagnostic);
+    const simTarget = `${SIMULATOR_URL}/api/command`;
+    try {
+      const { status, json } = await postJsonToAgent(simTarget, {
+        action: "set_specific_ai_diagnostic",
+        params: { diagnostic: diagSpec },
+      });
+      if (status < 400) {
+        return res.json({ ok: true, path: "shadow", diagnostic: diagSpec });
+      }
+      console.warn("simulator responded with", status, json);
+      // 시뮬레이터 오류 시 fallback으로 직접 전송
+    } catch (e) {
+      console.warn("simulator unreachable, falling back to direct:", e.message);
+    }
+
+    // fallback: fridge_realtime 직접 전송 (시뮬레이터 미실행 환경)
+    const message = diagSpec.sentenceDisplay;
+    const target = `${FRIDGE_REALTIME_URL}/api/receive_specific_ai_diagnostic`;
+    try {
+      const { status, json } = await postJsonToAgent(target, { message });
+      return res.status(status >= 400 ? status : 200).json(
+        Object.assign({ path: "fallback_direct" }, json && typeof json === "object" ? json : { ok: status < 400 })
+      );
+    } catch (e2) {
+      return res.status(502).json({
+        ok: false, error: "both_unreachable",
+        detail: String(e2 && e2.message ? e2.message : e2),
+        hint: `SIMULATOR_URL=${SIMULATOR_URL} 또는 FRIDGE_REALTIME_URL=${FRIDGE_REALTIME_URL} 을 확인하세요.`,
+      });
+    }
+  }
+
+  // ── 하위 호환: 문자열 message만 온 경우 (직접 전송) ──────
+  const message = body.message != null ? String(body.message).trim() : "";
   if (!message) {
-    return res.status(400).json({ ok: false, error: "missing_message" });
+    return res.status(400).json({ ok: false, error: "missing_diagnostic_or_message" });
   }
   const target = `${FRIDGE_REALTIME_URL}/api/receive_specific_ai_diagnostic`;
   try {
@@ -162,7 +253,7 @@ app.post("/api/send-diagnostic-to-agent", async (req, res) => {
       json && typeof json === "object" ? json : { ok: status < 400 }
     );
   } catch (e) {
-    console.error("send-diagnostic-to-agent:", e);
+    console.error("send-diagnostic-to-agent (legacy):", e);
     res.status(502).json({
       ok: false,
       error: "agent_unreachable",
